@@ -1,0 +1,16 @@
+#!/bin/sh
+# news-analysis-demo -- replay the three demo cases of the News Analysis System.
+set -e
+for CASE in pentagon-fake-image opera-neutrinos yandex-datacentres-bots; do
+    echo "================================================================"
+    colloquy timeline "$CASE"
+    echo
+done
+echo "=== The fake Pentagon image at 10:06: what should a reader have asked? ==="
+colloquy whatif pentagon-fake-image explosion_at_pentagon --at 2023-05-22T10:06
+echo
+echo "=== Yandex: why the bot-activity claim is not established ==="
+colloquy explain yandex-datacentres-bots russian_political_bot_activity_fell
+echo
+echo "=== How robust are the verdicts? (conspiracy numbers) ==="
+colloquy robustness pentagon-fake-image

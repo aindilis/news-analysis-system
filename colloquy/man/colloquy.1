@@ -1,0 +1,85 @@
+.TH COLLOQUY 1 "2026-10-14" "colloquy 0.3.0" "News Analysis System"
+.SH NAME
+colloquy \- ASPIC+ argumentation over dated, sourced evidence
+.SH SYNOPSIS
+.B colloquy
+.I command
+.I case
+.RI [ literal ]
+.RB [ \-\-at
+.IR DATE ]
+.SH DESCRIPTION
+.B colloquy
+reads a case file of sourced premises and strict and defeasible rules,
+builds every argument the case allows, works out which arguments
+defeat which (undermining, rebutting, undercutting, with last-link
+preferences), and computes the grounded extension.
+Each premise may carry the date it became public, so any past date can
+be replayed with
+.BR \-\-at ,
+given as YYYY-MM-DD or YYYY-MM-DDTHH:MM.
+.SH COMMANDS
+.TP
+.B status \fIcase\fR
+Status of every question the case tracks.
+.TP
+.B explain \fIcase literal\fR
+The arguments for a literal, with sources, and what defeats them.
+.TP
+.B whatif \fIcase literal\fR
+The premises, rules and critical questions whose defeat would change
+the literal's status.
+.TP
+.B timeline \fIcase\fR
+Replays the case one evidence date at a time and prints what changed.
+.TP
+.B robustness \fIcase\fR
+For each topic, the conspiracy number: the smallest number of sources
+that would have to be set aside for its status to change, and for a
+topic not accepted, how many would have to be set aside for it to become
+accepted. Then the priority sensitivity: every verdict that changes if
+one priority moves by one.
+.B \-\-max \fIN\fR
+bounds the size of the sets tried (default 4).
+.TP
+.B aif \fIcase\fR
+Writes the argument graph as Argument Interchange Format JSON.
+.TP
+.B cases
+Lists installed cases.
+.SH STATUSES
+.TP
+.B ACCEPTED
+an argument for it survives every attack
+.TP
+.B REFUTED
+an argument for a contrary is accepted
+.TP
+.B DEFEATED
+arguments exist but none survives; this does not mean it is false
+.TP
+.B CONTESTED
+undecided under grounded semantics
+.SH FILES
+.TP
+.I /usr/share/news-analysis-system/cases/
+installed case files; a case can be named without its path or .pl
+.SH ENVIRONMENT
+.TP
+.B COLLOQUY_CASE_PATH
+colon-separated directories searched for cases before the default
+.TP
+.B COLLOQUY_LIB
+alternative engine file, for running from a source checkout
+.SH EXAMPLES
+.nf
+colloquy timeline opera-neutrinos
+colloquy status yandex-datacentres-bots
+colloquy whatif pentagon-fake-image explosion_at_pentagon \-\-at 2023-05-22T10:06
+colloquy explain yandex-datacentres-bots russian_political_bot_activity_fell
+colloquy robustness opera-neutrinos \-\-at 2011-09-23
+.fi
+.SH SEE ALSO
+.BR swipl (1)
+.SH AUTHOR
+Andrew Dougherty, with Claude.

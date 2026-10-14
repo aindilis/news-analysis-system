@@ -1,0 +1,2 @@
+Test-Command: news-analysis-demo >/dev/null && swipl /usr/share/news-analysis-system/tests/run-tests.pl /usr/share/news-analysis-system/cases /usr/share/colloquy/colloquy.pl
+Depends: @

@@ -1,0 +1,8 @@
+news-analysis-system (0.3.0) unstable; urgency=medium
+
+  * Initial public release: the Colloquy argumentation engine (ASPIC+,
+    grounded semantics, dated replay, explain, whatif, timeline,
+    robustness with conspiracy numbers and priority sensitivity, AIF
+    export); three sourced demo cases; tutorial; proposal paper.
+
+ -- Andrew Dougherty <552578+aindilis@users.noreply.github.com>  Wed, 14 Oct 2026 12:30:00 -0400

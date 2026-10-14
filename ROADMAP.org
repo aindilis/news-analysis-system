@@ -1,0 +1,109 @@
+#+TITLE: News Analysis System: Roadmap
+#+AUTHOR: Andrew Dougherty
+#+TODO: TODO NEXT IDEA | DONE DROPPED
+#+STARTUP: overview
+
+Plans for the News Analysis System and its Colloquy engine. Items marked
+IDEA are not yet committed to. See README.md for what exists now, and the
+paper (doc/paper/) for the reasoning behind the plan.
+
+* Review
+** TODO Andrew reads and verifies the paper
+   Drafted by Claude on 2026-10-14; looked over, not yet verified. Check the
+   formal model (section 3), the case facts (section 5) and the citations.
+   Update the "Review status" notes in README.md, the tutorial and the paper.
+** TODO Andrew reads and works through the tutorial
+** TODO First push to github.com/aindilis/news-analysis-system
+
+* Phase 0: prototype (done, 0.3.0)
+** DONE Colloquy engine: ASPIC+, last-link, grounded semantics
+** DONE Dated evidence and replay (=--at=, =timeline=), times within a day
+** DONE =explain=, =whatif=, AIF JSON export
+** DONE No assert/retract: per-case modules, tabling
+** DONE Conspiracy numbers (=robustness=)
+   Smallest number of sources to set aside for a verdict to change, and for
+   an unaccepted claim, to make it accepted. Sources group by =origin/1=.
+** DONE Priority sensitivity report (=robustness=)
+   Every verdict that changes if one priority moves by one.
+** DONE Three demo cases: Pentagon fake image, OPERA neutrinos, Yandex bots
+** DONE Debian packages, regression tests, autopkgtest
+** DONE Tutorial (Info/Texinfo) and proposal paper (LaTeX)
+
+* Phase 1: engine (months 1-3)
+** TODO Preferred semantics
+   List every coherent interpretation the evidence allows, beside the
+   grounded (most cautious) one. The DARPA AIDA idea of keeping
+   alternatives alive.
+** TODO Rationality checks
+   Closure under transposition and the Caminada-Amgoud postulates.
+** TODO Proof standards as a parameter
+   e.g. preponderance, clear and convincing, beyond reasonable doubt;
+   journalistic vs legal standards shown side by side.
+** TODO Falsifiability critical question
+   Every hidden-coordination hypothesis carries "what observation would
+   count against this?"; flag hypotheses with no answer.
+** TODO Faster conspiracy numbers
+   Current search enumerates subsets; restrict to premises used by relevant
+   arguments, then use minimal hitting sets for larger cases.
+** TODO Twenty hand-encoded cases, half where the first account held up
+** IDEA RDF/OWL case format via SWI-Prolog semweb
+   A standard ontology instead of ad hoc predicates; keep the Prolog format
+   as a compact authoring syntax.
+
+* Phase 2: extraction (months 3-6)
+** TODO LLM extractor that writes case files
+   Reads an article; proposes premises (with source, date, URL), rules,
+   attacks and critical questions as a case file for human review. Every
+   extracted item is tagged with the model that produced it and is
+   attackable ("extraction misread the source"). The language model
+   proposes; only the engine decides acceptance.
+** TODO Human review command
+   Accept, edit or reject each proposed item before it enters a case.
+** IDEA Use Loki (MIT) for claim decomposition and evidence retrieval
+** IDEA Import propaganda-technique labels as premises
+   e.g. SemEval-2020 Task 11 models; a technique label is evidence about
+   rhetoric, never about truth.
+
+* Phase 3: archive and provenance (months 6-9)
+** TODO Capture every source page
+   ArchiveBox or WARC captures; each premise points at a dated capture with
+   a content hash, so replay reads what was public then, not the live page.
+** TODO Detect silent edits
+   Re-capture sources on a schedule and flag premises whose source text
+   changed.
+** TODO Persistent store via prolog-mysql-store
+   Package prolog-mysql-store with autopackager first. Connect through a
+   thin pluggable interface so the engine never depends on MySQL directly.
+   Case files in git stay the reviewable source of truth until live cases
+   need it.
+
+* Phase 4: readers and peers (months 9-12)
+** TODO Reader view (web)
+   Status, explanation, and "what would change your mind?" for each claim.
+** TODO Signed peer questions
+   A peer's critical question enters a reader's graph only if it cites a
+   source; trust is each reader's own web of trust.
+** TODO Ranking that rewards agreement across usual opponents
+   Borrowing the Community Notes bridging idea for shared questions.
+** TODO AIF round-trip with ARG-tech tools
+** TODO Debian upload (ITP)
+
+* Cases to encode
+** IDEA The Navy "GoFast" video
+   Apparent fast low flight explained by parallax; discussed in NASA's 2023
+   UAP independent study. A settled, checkable UAP case; research before
+   encoding, including recent declassification.
+** IDEA Cases where the first official account held up
+   Needed for a balanced corpus (see Phase 1).
+
+* Lineage and related FRDCSA work
+** IDEA OSINT3 as the project name
+   Andrew's earlier system (ShinyCMS-based; a VM may survive): free tools
+   (OSINT) applied to open sources (OSINT) to produce intelligence anyone can
+   check and act on (OSINT). Decide after recovering the original.
+** IDEA conspiracy-theorist
+   Andrew's earlier project to weigh all interpretations and find the
+   smallest set of factual mistakes that yields a coherent account; the
+   conspiracy numbers are a first step.
+** IDEA news-monitor (2018)
+   The predecessor subsystem; superseded by this project.

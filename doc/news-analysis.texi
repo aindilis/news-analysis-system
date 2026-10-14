@@ -1,0 +1,818 @@
+\input texinfo
+@setfilename news-analysis.info
+@settitle News Analysis System Tutorial
+
+@dircategory Science
+@direntry
+* News Analysis: (news-analysis).   Argument maps of news stories with Colloquy.
+@end direntry
+
+@copying
+This tutorial is for the News Analysis System 0.3.0 and its Colloquy
+engine.  Copyright @copyright{} 2026 Andrew Dougherty.  License:
+GPL-3.0-or-later.
+@end copying
+
+@titlepage
+@title News Analysis System Tutorial
+@subtitle Argument maps of news stories with Colloquy, version 0.3.0
+@author Andrew Dougherty, with Claude
+@end titlepage
+
+@node Top
+@top News Analysis System Tutorial
+
+The News Analysis System keeps an argument map of a news story.  For
+each question a story raises, it tells you whether the evidence public
+at a given moment supports an answer, what that answer rests on, and
+what new evidence would change it.  This tutorial teaches the ideas from
+the ground up, then shows you how to write a case of your own.
+
+Review status: this tutorial was drafted by Claude (Anthropic) at
+Andrew Dougherty's direction on 14 October 2026.  Every command output
+shown was checked against the running engine.  Andrew has looked it
+over but has not yet verified it.
+
+@menu
+* Overview::            What the system does, in one page.
+* Installing::          Installing the packages and checking them.
+* First Steps::         Running the demo and asking questions.
+* Core Ideas::          Evidence, rules, arguments, attacks, verdicts.
+* A Case From Scratch:: Building a small case step by step.
+* Commands::            Every colloquy command, with examples.
+* The Demo Cases::      What each of the three cases teaches.
+* Experiments::         Changing cases and watching verdicts move.
+* Robustness::          Conspiracy numbers and priority sensitivity.
+* Case File Reference:: Every predicate a case file can use.
+* How It Works::        The engine's algorithm, step by step.
+* Limitations::         What the engine does not do yet.
+@end menu
+
+@node Overview
+@chapter Overview
+
+A news story is a set of claims that arrive over time.  Early claims
+often come from whoever had the most immediate access, and later
+evidence can overturn them.  Readers rarely go back and recheck what
+they believed once that happens.
+
+The system does the rechecking for you.  You record each piece of
+evidence with its source and the moment it became public, and you write
+rules that say how evidence supports conclusions.  The engine,
+@command{colloquy}, then works out which conclusions stand, at any
+moment you choose.
+
+It never gives a probability.  Every verdict is one of five statuses:
+
+@table @asis
+@item ACCEPTED
+Some argument for the claim survives every attack.
+@item REFUTED
+Some argument for a contrary claim is accepted.
+@item DEFEATED
+Arguments for the claim exist, but none survives.  This means
+@emph{not established}, which is different from shown false.
+@item CONTESTED
+Arguments for and against defeat each other and neither side wins.
+@item -
+Nothing supports the claim yet.
+@end table
+
+Because every verdict comes with the arguments behind it, you can
+always ask @emph{why}, and you can always ask @emph{what would change
+it}.  Those two questions are the point of the system.
+
+@node Installing
+@chapter Installing
+
+These steps are for Debian 12 or 13, or Ubuntu 24.04.
+
+@enumerate
+@item
+Put the three @file{.deb} files in one folder, open a terminal there,
+and install them:
+
+@example
+sudo apt install ./colloquy_0.3.0_all.deb \
+  ./news-analysis-cases_0.3.0_all.deb \
+  ./news-analysis-system_0.3.0_all.deb
+@end example
+
+It worked if the output includes @samp{Setting up news-analysis-system}.
+apt also installs SWI-Prolog if you do not have it.
+
+@item
+Check the engine and the cases:
+
+@example
+colloquy version
+colloquy cases
+@end example
+
+Expect @samp{colloquy 0.3.0}, then three case names.
+@end enumerate
+
+Once installed, this tutorial is in the Info directory: run
+@command{info news-analysis}, or in Emacs press @kbd{C-h i} and choose
+@samp{News Analysis}.  The proposal paper is installed as
+@file{/usr/share/doc/news-analysis-system/news-analysis-system.pdf}.
+
+@node First Steps
+@chapter First Steps
+
+Run the whole demo first, to see what output looks like:
+
+@example
+news-analysis-demo | less
+@end example
+
+Now ask a question yourself.  The fake Pentagon image case covers one
+morning in May 2023.  Ask for the state of play at 10:06, when the image
+first spread:
+
+@example
+colloquy status pentagon-fake-image --at 2023-05-22T10:06
+@end example
+
+You will see:
+
+@example
+  ACCEPTED   explosion_at_pentagon
+             Was there an explosion at the Pentagon?
+  ACCEPTED   image_is_authentic
+             Is the viral image a real photograph of the scene?
+  -          markets_reacted_to_claim
+             Did markets react to the claim?
+@end example
+
+At 10:06, with only the image public, the engine accepts the explosion.
+That is not a bug.  Nothing yet contradicts the image, so on the
+evidence available it stands.  Now ask again without @option{--at},
+which means ``as of the latest evidence'':
+
+@example
+colloquy status pentagon-fake-image
+@end example
+
+Both claims are now REFUTED, and the market reaction is ACCEPTED: the
+markets did move, even though the event did not happen.
+
+Two more questions are worth trying straight away:
+
+@example
+colloquy whatif pentagon-fake-image explosion_at_pentagon \
+  --at 2023-05-22T10:06
+colloquy explain pentagon-fake-image explosion_at_pentagon
+@end example
+
+The first lists what a careful reader should have asked at 10:06.  The
+second shows, step by step, why the explosion claim is refuted now.
+
+@node Core Ideas
+@chapter Core Ideas
+
+The engine implements a framework from the research literature called
+ASPIC+.  You do not need to know the literature.  This chapter explains
+the six ideas it rests on, using small examples.
+
+@section Evidence, with dates
+A @dfn{premise} is a statement of record: something a source said, or
+something a measurement showed, at a known time.  For example:
+
+@example
+viral_photo_of_collapsed_bridge     public 2026-03-01T08:00
+city_says_bridge_open               public 2026-03-01T08:30
+@end example
+
+A premise records that the source said it, not that it is true.
+@samp{city_says_bridge_open} means the city said the bridge is open.
+Whether the bridge @emph{is} open is a conclusion the engine reaches.
+
+Each premise carries the date, or date and time, it became public.
+When you ask about a moment with @option{--at}, premises from later are
+simply not there.  That is how the engine replays the past.
+
+@section Rules
+A @dfn{rule} says that some premises or conclusions support another
+conclusion.  There are two kinds:
+
+@table @asis
+@item Strict rules
+If the antecedents hold, the conclusion must hold.  Use these rarely,
+for definitions.
+@item Defeasible rules
+If the antecedents hold, the conclusion presumably holds, unless
+something defeats it.  Almost every rule about news is defeasible.
+@end table
+
+For example, ``the authority responsible for the bridge reports it
+open, so presumably it is open'' is defeasible: the authority could be
+wrong.
+
+@section Arguments
+An @dfn{argument} is a chain of rules ending at premises.  The engine
+builds every argument the case allows.  For instance:
+
+@example
+bridge_collapsed              by rule r_photo_shows
+    viral_photo_of_collapsed_bridge   (premise)
+    photo_is_current          by rule r_photo_current
+        viral_photo_of_collapsed_bridge   (premise)
+@end example
+
+Each sub-chain is itself an argument, a @dfn{sub-argument}.  This
+matters because attacking any sub-argument attacks the whole.
+
+@section Three ways to attack an argument
+@table @asis
+@item Rebut
+Argue for the opposite of a defeasible conclusion.  The city's
+statement, read as ``the bridge did not collapse'', rebuts the photo
+argument.
+@item Undercut
+Argue that a rule does not apply here, without claiming the opposite.
+In the OPERA case, the discovery of a loose cable does not show that
+neutrinos are slower than light; it shows that the measurement cannot
+be used.  In a case file, an undercut is a rule whose conclusion is
+@samp{undercut(@var{rule-id})}.
+@item Undermine
+Argue that a premise is false: the source did not say what we recorded,
+or the record is wrong.
+@end table
+
+Opposites are written with @samp{neg(@dots{})}.  Two claims that
+cannot both hold, without one being the negation of the other, are
+declared with @samp{contrary(A, B)}.
+
+@section Which attack wins
+An attack only succeeds, and becomes a @dfn{defeat}, if the attacker is
+not weaker than what it attacks.  Undercuts always succeed.  Rebuts and
+undermines are compared by @dfn{priority}.
+
+Every defeasible rule and premise has a priority, an integer where
+higher means a more reliable kind of evidence.  The demo cases use
+roughly this scale:
+
+@example
+1  an inference from behaviour with other explanations,
+   an anonymous post, unmeasured impressions
+2  testimony by an interested party
+3  official records, forensic reports
+4  independent measurement or replication
+5  recordings, an experimenter's report of their own error
+6  court verdicts
+@end example
+
+These are an ordinal ranking of kinds of evidence, not certainties.
+
+To compare two arguments, the engine looks at the @emph{last}
+defeasible rule each used to reach its conclusion (the
+@dfn{last-link} principle).  At 08:30 in the bridge case, the photo
+argument ends in @samp{r_photo_shows} (priority 1) and the city
+argument ends in @samp{r_city} (priority 3).  So the city defeats the
+photo argument, and the photo argument does not defeat the city.
+
+When both sides have equal priority, each defeats the other.  That is
+what happens in the OPERA case in September 2011: a priority-3
+measurement against a priority-3 theory.
+
+@section Deciding what stands
+Defeats form a network: A defeats B, B defeats C, and so on.  The
+engine labels each argument IN, OUT or UNDECIDED using
+@dfn{grounded semantics}, the most cautious standard in the field:
+
+@enumerate
+@item
+An argument is IN if every argument that defeats it is already OUT
+(including when nothing defeats it).
+@item
+An argument defeated by an IN argument is OUT.
+@item
+Repeat until nothing changes.  Anything left is UNDECIDED.
+@end enumerate
+
+In the bridge case at 08:30, the city argument has no attackers that
+succeed, so it is IN.  The photo argument is defeated by an IN argument,
+so it is OUT.
+
+In OPERA in September 2011, the measurement and the theory defeat each
+other and nothing else touches them.  Neither ever gets labelled, so
+both stay UNDECIDED, and the claim is CONTESTED.  In February 2012 the
+fault report undercuts the measurement.  The undercut has no attackers,
+so it is IN; the measurement becomes OUT; the theory now has no
+undefeated attacker, so it becomes IN; and the claim is REFUTED.
+
+@section The five statuses again
+A claim's status comes from the labels of the arguments for it and
+against it:
+
+@itemize @bullet
+@item
+Any argument for it is IN: ACCEPTED.
+@item
+Otherwise, any argument for a contrary is IN: REFUTED.
+@item
+Otherwise, any argument for it is UNDECIDED: CONTESTED.
+@item
+Otherwise, arguments for it exist but are all OUT: DEFEATED.
+@item
+Otherwise: no argument at all, shown as @samp{-}.
+@end itemize
+
+The difference between REFUTED and DEFEATED matters.  In the Yandex
+case, the claim that political bot activity fell is DEFEATED: every
+argument for it was undercut, because none of the evidence offered
+actually measures it.  Nothing shows that bot activity did @emph{not}
+fall.  The honest verdict is ``not established''.
+
+@node A Case From Scratch
+@chapter A Case From Scratch
+
+This chapter builds a small fictional case, the Riverside Bridge
+rumour.  The finished file is installed as
+@file{/usr/share/doc/news-analysis-system/examples/bridge-rumour.pl}
+(in the source tree, @file{doc/examples/bridge-rumour.pl}); you will
+write it yourself here.
+
+@section Step 1: sources and the helper
+Create @file{~/bridge.pl} and start with the title and the sources:
+
+@example
+case_title('Tutorial: the Riverside Bridge rumour (fictional)').
+
+src(post,  'A social media post (fictional)',              'none').
+src(city,  'City traffic department account (fictional)', 'none').
+src(check, 'Reverse image search result (fictional)',      'none').
+src(tv,    'Local TV live broadcast (fictional)',          'none').
+
+premise(Id, L, [date(D), source(S), url(U), prio(P), note(N)|X]) :-
+    p(Id, L, D, K, P, N, X),
+    src(K, S, U).
+@end example
+
+The @samp{premise} clause is a helper: it lets you write each piece of
+evidence as one short @samp{p/7} fact and attaches the source for you.
+Copy it unchanged into every case.
+
+@section Step 2: the questions
+Say which claims the case is about:
+
+@example
+topic(bridge_collapsed, 'Did the Riverside Bridge collapse?').
+topic(photo_is_current, 'Is the viral photo from today?').
+@end example
+
+@section Step 3: the first piece of evidence and its rules
+@example
+p(photo, viral_photo_of_collapsed_bridge, '2026-03-01T08:00', post, 1,
+  'A post shows a collapsed bridge captioned "Riverside Bridge is gone"',
+  []).
+
+defeasible(r_photo_current, [viral_photo_of_collapsed_bridge],
+           photo_is_current,
+           [prio(1), label('a photo posted as news is presumed to be from today')]).
+critical_question(r_photo_current, 'Has the photo appeared anywhere before?').
+
+defeasible(r_photo_shows, [viral_photo_of_collapsed_bridge, photo_is_current],
+           bridge_collapsed,
+           [prio(1), label('a current photo shows what happened')]).
+@end example
+
+The arguments of @samp{p/7} are: an identifier, the literal, the time,
+the source key, the priority, a one-line note for the timeline, and a
+list of extras (use @samp{[]}).
+
+Run it:
+
+@example
+colloquy status ~/bridge.pl
+@end example
+
+Both topics are ACCEPTED.  With one photo and nothing else, the engine
+has no reason to doubt it.  Ask what would change that:
+
+@example
+colloquy whatif ~/bridge.pl bridge_collapsed
+@end example
+
+It lists the photo premise, both rules, and the critical question you
+attached.  This list is the reader's homework at 08:00.
+
+@section Step 4: the authority speaks
+Add the city's statement and a rule for it:
+
+@example
+p(city, city_says_bridge_open, '2026-03-01T08:30', city, 3,
+  'City traffic department: bridge open, a minor accident was cleared',
+  []).
+
+defeasible(r_city, [city_says_bridge_open], neg(bridge_collapsed),
+           [prio(3), label('the authority responsible for the bridge reports it open')]).
+@end example
+
+Run @command{colloquy timeline ~/bridge.pl}.  At 08:30,
+@samp{bridge_collapsed} goes from ACCEPTED to REFUTED: a priority-3
+rebut beats a priority-1 argument.  But @samp{photo_is_current} is
+still ACCEPTED, because nothing has attacked that part yet.
+
+@section Step 5: the photo is old
+@example
+p(search, photo_found_online_in_2019, '2026-03-01T08:45', check, 3,
+  'The same photo appears online in 2019, from a different country',
+  []).
+
+defeasible(r_old_photo, [photo_found_online_in_2019], neg(photo_is_current),
+           [prio(3), label('a photo published in 2019 is not from today')]).
+@end example
+
+Now at 08:45 @samp{photo_is_current} is REFUTED too.  The critical
+question from step 3 has been answered.
+
+@section Step 6: evidence that changes nothing
+@example
+p(live, live_tv_shows_traffic_on_bridge, '2026-03-01T09:00', tv, 4,
+  'Live TV shows traffic crossing the bridge',
+  []).
+
+defeasible(r_live, [live_tv_shows_traffic_on_bridge], neg(bridge_collapsed),
+           [prio(4), label('a live broadcast shows the bridge standing')]).
+@end example
+
+The timeline at 09:00 says @samp{(no change in any conclusion)}.  The
+claim was already refuted; the live broadcast is a second, independent
+reason.  @command{colloquy explain ~/bridge.pl bridge_collapsed} now
+shows two accepted arguments against the rumour.
+
+@section What you built
+@example
+2026-03-01T08:00   bridge_collapsed: - -> ACCEPTED
+                   photo_is_current: - -> ACCEPTED
+2026-03-01T08:30   bridge_collapsed: ACCEPTED -> REFUTED
+2026-03-01T08:45   photo_is_current: ACCEPTED -> REFUTED
+2026-03-01T09:00   (no change in any conclusion)
+@end example
+
+That is the whole method.  Real cases differ only in having more
+evidence, more careful rules, and real sources with URLs.
+
+@node Commands
+@chapter Commands
+
+Every command takes a @var{case}: either a file path, or the name of an
+installed case such as @samp{opera-neutrinos}.  Most take
+@option{--at @var{date}}, where @var{date} is @samp{YYYY-MM-DD} or
+@samp{YYYY-MM-DDTHH:MM}.  Without it, the engine uses the latest
+evidence in the case.
+
+@table @code
+@item colloquy status @var{case} [--at @var{date}]
+The status of every topic in the case.
+
+@item colloquy explain @var{case} @var{literal} [--at @var{date}]
+Every argument for @var{literal}, labelled IN, OUT or UNDECIDED, with
+its premises and sources, and the arguments that defeat it.
+
+@item colloquy whatif @var{case} @var{literal} [--at @var{date}]
+For an accepted claim: the premises, rules and critical questions whose
+defeat would change it.  For a refuted claim: the points in the winning
+argument that would have to fall.  For a claim with no argument: which
+rules could conclude it.
+
+@item colloquy timeline @var{case}
+Steps through each moment at which evidence arrived, listing the new
+evidence and every status that changed.
+
+@item colloquy robustness @var{case} [--at @var{date}] [--max @var{n}]
+For each topic, the conspiracy number and, for a topic not accepted,
+how many sources would have to be set aside for it to become accepted;
+then every verdict that changes if one priority moves by one.
+@xref{Robustness}.
+
+@item colloquy aif @var{case} [--at @var{date}]
+Writes the argument graph as AIF JSON, the Argument Interchange Format
+used by other argumentation tools.
+
+@item colloquy cases
+Lists the installed cases.  Set @env{COLLOQUY_CASE_PATH} to a
+colon-separated list of directories to add your own.
+
+@item news-analysis-demo
+Replays all three demo cases and shows one @samp{whatif} and one
+@samp{explain}.
+@end table
+
+Literals are written as Prolog terms.  Put quotes around any that
+contain parentheses, for example @samp{'neg(bridge_collapsed)'}.
+
+@node The Demo Cases
+@chapter The Demo Cases
+
+The three installed cases were chosen to end three different ways.
+
+@section pentagon-fake-image: refuted within the day
+On 22 May 2023 an apparently AI-generated image of smoke ``at the
+Pentagon'' spread on Twitter at 10:06, and US stocks fell sharply for a
+few minutes.  The Arlington County fire department and the Pentagon
+Force Protection Agency said there was no incident, and an analyst at
+Bellingcat pointed out artifacts in the image and the absence of any
+other witnesses.
+
+What to look at: @command{colloquy whatif} at 10:06 lists the three
+questions the afternoon's evidence answered.  The market reaction stays
+ACCEPTED throughout: it shows belief, not truth.
+
+@section opera-neutrinos: contested, then self-corrected
+In September 2011 the OPERA experiment reported neutrinos arriving
+about 60 ns earlier than light would.  The engine holds this as
+CONTESTED against special relativity, rather than accepting or
+dismissing it.  A November re-test on the same apparatus changes
+nothing.  In February 2012 the team found a loose fibre-optic link and a
+fast-running clock, and the claim becomes REFUTED.
+
+What to look at: the timeline after February 2012.  An independent
+replication, the resignations of the experiment's leaders, and the
+final corrected results all change nothing.  The first is redundant;
+the second is not evidence; the third confirms what was already known.
+
+@section yandex-datacentres-bots: not established (live)
+In October 2026 Ukrainian drones struck Yandex data centres, and
+claims spread that pro-Kremlin bot activity on Western social media fell
+afterwards.  The engine accepts that the strikes happened (both sides
+describe them) and that automated traffic from Yandex's network fell.
+It finds the claim that political bot activity fell DEFEATED: the
+testimony offered cites no data, the user reports are unmeasured, and
+the traffic figure also counts legitimate crawlers.  A popular version
+naming pro-Trump bots specifically has no argument at all, because no
+source checked makes that claim.
+
+What to look at: @command{colloquy explain yandex-datacentres-bots
+russian_political_bot_activity_fell}.  Three arguments, each undercut
+for a different reason.
+
+This case is live.  As new evidence appears, add it and rerun the
+timeline.
+
+@node Experiments
+@chapter Experiments
+
+@section Experiment 1: what evidence would establish the bot claim?
+@enumerate
+@item
+Copy the case:
+
+@example
+cp /usr/share/news-analysis-system/cases/yandex-datacentres-bots.pl \
+   ~/yandex-test.pl
+@end example
+
+@item
+Append a hypothetical independent study:
+
+@example
+cat >> ~/yandex-test.pl <<'EOF'
+
+src(hyp, 'HYPOTHETICAL evidence for experimenting', 'none').
+p(study, study_measures_political_bot_drop, '2026-10-20', hyp, 4,
+  'HYPOTHETICAL: an independent study measures a drop in bot posts', []).
+defeasible(r_study, [study_measures_political_bot_drop],
+           russian_political_bot_activity_fell,
+           [prio(4), scheme(measurement), label('an independent measurement')]).
+EOF
+@end example
+
+@item
+Replay it with @command{colloquy timeline ~/yandex-test.pl}.  It worked
+if 2026-10-20 shows @samp{russian_political_bot_activity_fell: DEFEATED
+-> ACCEPTED}.  The causal claim becomes ACCEPTED too, because its other
+premise (the strikes) was already established.
+@end enumerate
+
+The lesson: more testimony would not change the verdict.  Measurement
+would.
+
+@section Experiment 2: how much do priorities matter?
+@enumerate
+@item
+Copy the OPERA case and lower the theory's priority from 3 to 2:
+
+@example
+cp /usr/share/news-analysis-system/cases/opera-neutrinos.pl ~/opera-test.pl
+sed -i 's/\[prio(3), scheme(established_theory)/[prio(2), scheme(established_theory)/' \
+    ~/opera-test.pl
+@end example
+
+@item
+Run @command{colloquy timeline ~/opera-test.pl}.  It worked if
+2011-09-23 now shows ACCEPTED instead of CONTESTED.
+@end enumerate
+
+One number changed the verdict.  This is why every priority in a case
+should be visible and open to challenge, and why the cases use a
+published scale rather than numbers chosen per claim.
+
+@section Experiment 3: an unfalsifiable claim
+Add a premise and a rule to any copied case that conclude a new topic,
+without any evidence that could ever count against it.  Then run
+@command{colloquy whatif} on it.  Notice that the only attack points are
+the premise itself and the rule.  If no conceivable observation could
+undermine the premise or undercut the rule, the claim can never be
+tested, and the engine's verdict on it says nothing about the world.
+That is the reason for the critical question ``what observation would
+count against this?''.
+
+@node Robustness
+@chapter Robustness
+
+A verdict is only as strong as what it rests on.  The
+@command{robustness} command asks two questions of every topic.
+
+@section Conspiracy numbers
+The @dfn{conspiracy number} of a claim is the smallest number of
+sources that would have to be wrong, mistaken or colluding for its
+status to change.  The engine finds it by setting sources aside, one,
+then two, then three, and recomputing.  The name comes from
+McAllester's conspiracy numbers for game-tree search, which count how
+many leaves must change to change the value at the root.
+
+@example
+colloquy robustness pentagon-fake-image
+@end example
+
+@example
+explosion_at_pentagon  REFUTED
+  conspiracy number 1: set aside [official] and it becomes DEFEATED
+  to become ACCEPTED: set aside 3: [analysis,impostor,official]
+@end example
+
+Read it like this.  If the officials' statement were wrong, the claim
+of an explosion would no longer be refuted, but it would still not be
+established (DEFEATED), because the image analysis would still sink the
+photograph.  For the explosion to be @emph{accepted}, three separate
+sources would all have to be wrong: the officials, the image analyst,
+and the record of who spread the image.
+
+The measure treats both directions alike.  A claim that one interested
+party is lying has a conspiracy number of one, and suspecting it is
+reasonable.  A claim that needs many independent sources to be
+coordinated has a high number, and the engine says so without calling
+it absurd.
+
+Two results in the demo cases are worth noticing:
+
+@itemize @bullet
+@item
+In the Yandex case, @samp{russian_political_bot_activity_fell} becomes
+ACCEPTED if one source is set aside: the caveat that the traffic figure
+also counts crawlers.  The claim is one fact away from established, and
+that fact is the thing to check.
+@item
+@samp{pro_trump_bots_specifically_reduced} cannot become accepted by
+setting any sources aside.  Nothing supports it; only new evidence
+could.
+@end itemize
+
+By default each premise is its own source.  When several premises come
+from one origin (one outlet repeating another, or one person quoted in
+several places), add @samp{origin(@var{O})} to their metadata and they
+count once.
+
+@section Priority sensitivity
+The second part of the report moves each priority up and down by one
+and lists every verdict that changes.  On the latest evidence the demo
+cases are stable: no single move changes anything.  Earlier moments can
+be fragile:
+
+@example
+colloquy robustness opera-neutrinos --at 2011-09-23
+@end example
+
+@example
+Priority sensitivity at 2011-09-23 (each priority moved by one):
+  r_measure 3 -> 2: neutrinos_faster_than_light CONTESTED -> REFUTED
+  r_measure 3 -> 4: neutrinos_faster_than_light CONTESTED -> ACCEPTED
+  r_theory 3 -> 2: neutrinos_faster_than_light CONTESTED -> ACCEPTED
+  r_theory 3 -> 4: neutrinos_faster_than_light CONTESTED -> REFUTED
+@end example
+
+In September 2011 the verdict rested entirely on judging the
+measurement and the theory equally reliable.  That is honest, and the
+report makes the dependence visible: anyone who disputes the verdict
+can see exactly which judgement to argue about.
+
+@node Case File Reference
+@chapter Case File Reference
+
+A case file is ordinary Prolog, loaded into its own module.  These are
+the predicates the engine reads:
+
+@table @code
+@item case_title(@var{Text})
+The title printed by @command{status} and @command{timeline}.
+
+@item premise(@var{Id}, @var{Literal}, @var{Meta})
+An attackable statement of record.  @var{Meta} is a list that may
+contain @samp{date(D)}, @samp{source(S)}, @samp{url(U)},
+@samp{prio(P)}, @samp{note(N)}, @samp{precision(P)} and
+@samp{origin(O)}.  A premise with no date is available at every moment;
+use that for background knowledge.  Premises with the same
+@samp{origin} count as one source for conspiracy numbers.
+
+@item axiom(@var{Id}, @var{Literal}, @var{Meta})
+A statement that cannot be attacked.  Use very sparingly.
+
+@item defeasible(@var{Id}, @var{Antecedents}, @var{Conclusion}, @var{Meta})
+A defeasible rule.  @var{Meta} may contain @samp{prio(P)},
+@samp{scheme(S)} and @samp{label(Text)}.
+
+@item strict(@var{Id}, @var{Antecedents}, @var{Conclusion})
+A strict rule.
+
+@item critical_question(@var{RuleId}, @var{Text})
+A question a reader should ask before trusting the rule.  Shown by
+@command{whatif}.
+
+@item contrary(@var{A}, @var{B})
+@var{A} and @var{B} cannot both hold.  Symmetric.
+
+@item topic(@var{Literal}, @var{Description})
+A question the case tracks.  If a case declares no topics, the engine
+uses every defeasible conclusion.
+@end table
+
+Dates are atoms: @samp{'2026-10-12'} or @samp{'2026-10-12T14:30'}.
+When a source gives no time for a statement, use the time the source
+was published and add @samp{precision(upper_bound)}: the statement was
+public by then, possibly earlier.  Use @samp{precision(approximate)} or
+@samp{precision(month)} where those apply.
+
+@node How It Works
+@chapter How It Works
+
+The engine is one file, @file{/usr/share/colloquy/colloquy.pl}, about
+670 lines of SWI-Prolog.  For a query at moment @var{t}:
+
+@enumerate
+@item
+Load the case into its own module.  (@code{load_case/1})
+
+@item
+Collect the premises public at or before @var{t}; each is a one-step
+argument.  (@code{arguments_at/2})
+
+@item
+Repeatedly apply every rule whose antecedents are concluded by existing
+arguments, building larger arguments, until nothing new appears.
+Arguments that would use their own conclusion are skipped.
+(@code{closure/2})
+
+@item
+For every pair of arguments, check every sub-argument for an undermine,
+rebut or undercut, and keep the attacks that succeed under the last-link
+priority comparison.  (@code{defeat/4}, @code{weaker/2})
+
+@item
+Label arguments IN, OUT or UNDECIDED by grounded semantics.
+(@code{grounded/6})
+
+@item
+Turn argument labels into the five statuses.  (@code{literal_status/3})
+@end enumerate
+
+A what-if scenario (premises set aside, priorities changed) is held in
+a global variable and is part of every cached key; the
+@command{robustness} command uses it to recompute without editing the
+case.  Results for each case, moment and scenario are memoised with
+tabling.  The engine
+never uses assert or retract.
+
+@node Limitations
+@chapter Limitations
+
+@itemize @bullet
+@item
+Only grounded semantics.  Preferred semantics, which would list every
+coherent interpretation the evidence allows, is planned.
+@item
+Priorities are set by hand.  The @command{robustness} command shows
+which verdicts depend on them, but cannot tell you whether they are
+right.
+@item
+Conspiracy numbers only consider setting existing sources aside, and
+count sources as independent unless told otherwise with
+@samp{origin}.  The search tries every combination, so keep
+@option{--max} small for large cases.
+@item
+No automatic extraction.  Cases are written by hand; an LLM-based
+extractor that proposes premises and rules for review is planned.
+@item
+No archive.  URLs point at live pages; linking each premise to a dated,
+hashed capture is planned.
+@item
+Argument construction is exhaustive, which is fine for cases of a few
+dozen premises and rules but will need indexing for large ones.
+@item
+The case format is ad hoc Prolog.  An RDF/OWL format is under
+consideration.  See @file{ROADMAP.org} in the source tree for plans.
+@end itemize
+
+@bye

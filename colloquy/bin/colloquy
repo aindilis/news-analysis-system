@@ -1,0 +1,5 @@
+#!/bin/sh
+# colloquy -- command-line front end for the Colloquy argumentation engine.
+# COLLOQUY_LIB overrides the engine location (useful when running from a checkout).
+LIB="${COLLOQUY_LIB:-/usr/share/colloquy/colloquy.pl}"
+exec swipl -q -g "current_prolog_flag(argv, A), colloquy:colloquy_main(A)" -t halt "$LIB" -- "$@"

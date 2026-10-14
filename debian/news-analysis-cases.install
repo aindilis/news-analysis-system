@@ -1,0 +1,2 @@
+cases/*.pl usr/share/news-analysis-system/cases/
+tests/run-tests.pl usr/share/news-analysis-system/tests/
